@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:audio_video_progress_bar/audio_video_progress_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
+import 'package:rxdart/rxdart.dart';
 
 class MusicList extends StatefulWidget {
   const MusicList({super.key});
@@ -12,7 +14,9 @@ class MusicList extends StatefulWidget {
 }
 
 class _MusicListState extends State<MusicList> {
-  late Map<String, dynamic> data;
+  List<dynamic> data = [];
+  late Map<String, dynamic> tracks;
+  List<dynamic> artist = [];
   String name = '';
   String tokens = '';
   var albumUrl;
@@ -47,7 +51,7 @@ class _MusicListState extends State<MusicList> {
     } catch (e) {
       print(e);
     }
-    const urlAlbum = 'https://api.spotify.com/v1/tracks/11dFghVXANMlKmJXsNCbNl';
+    const urlAlbum = 'https://api.spotify.com/v1/albums/4aawyAB9vmqN3uQ7FjRGTy';
     final uriAlbum = Uri.parse(urlAlbum);
     final response =
         await http.get(uriAlbum, headers: {'Authorization': 'Bearer $tokens'});
@@ -55,12 +59,22 @@ class _MusicListState extends State<MusicList> {
     final bodyData = response.body;
     final json1 = jsonDecode(bodyData);
     setState(() {
-      data = json1['album'];
-      albumUrl = json1['external_urls'];
+      data = json1['images'];
+      tracks = json1['tracks'];
+      artist = json1['artists'];
     });
     print(data);
-    print(albumUrl);
+    print(tracks);
+    print(artist);
   }
+
+  Stream<PositionData> get _positionDataStream =>
+      Rx.combineLatest3<Duration, Duration, Duration?, PositionData>(
+          _audioPlayer.positionStream,
+          _audioPlayer.bufferedPositionStream,
+          _audioPlayer.durationStream,
+          (position, bufferposition, duration) => PositionData(
+              position, bufferposition, duration ?? Duration.zero));
 
   @override
   void initState() {
@@ -74,9 +88,7 @@ class _MusicListState extends State<MusicList> {
       getToken();
     });
     //_audioPlayer = AudioPlayer()..setAsset('assets/Makhna.mp3');
-    _audioPlayer = AudioPlayer()
-      ..setUrl(
-          'https:soundcloud.com/ameer-hamxa-385287711/zindagi_awargi_hai-jhoom_ost');
+    _audioPlayer = AudioPlayer()..setUrl(tracks['items'][0]['preview_url']);
   }
 
   @override
@@ -92,30 +104,40 @@ class _MusicListState extends State<MusicList> {
           title: const Text('Music Player'),
         ),
         backgroundColor: const Color.fromARGB(255, 140, 179, 247),
-        body: Column(
-          mainAxisAlignment: MainAxisAlignment.start,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const SizedBox(
-              height: 100,
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Image.network(data['images'][1]['url']),
-              ],
-            ),
-            const SizedBox(
-              height: 30,
-            ),
-            Text(data['name'], style: const TextStyle(fontSize: 35)),
-            const SizedBox(
-              height: 10,
-            ),
-            Text(data['artists'][0]['name'].toString(),
-                style: const TextStyle(fontSize: 20)),
-            Controls(audioPlayer: _audioPlayer),
-          ],
+        body: SingleChildScrollView(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const SizedBox(
+                height: 50,
+              ),
+              Image.network(data[1]['url']),
+              const SizedBox(height: 10),
+              StreamBuilder<PositionData>(
+                stream: _positionDataStream,
+                builder: (context, snapshot) {
+                  final positionData = snapshot.data;
+                  return ProgressBar(
+                    progress: positionData?.position ?? Duration.zero,
+                    buffered: positionData?.bufferPosition ?? Duration.zero,
+                    total: positionData?.duration ?? Duration.zero,
+                    onSeek: _audioPlayer.seek,
+                  );
+                },
+              ),
+              const SizedBox(
+                height: 10,
+              ),
+              Text(tracks['items'][0]['name'],
+                  style: const TextStyle(fontSize: 25)),
+              Text(artist[0]['name'], style: const TextStyle(fontSize: 20)),
+              const SizedBox(
+                height: 10,
+              ),
+              Controls(audioPlayer: _audioPlayer),
+            ],
+          ),
         ));
   }
 }
@@ -142,7 +164,7 @@ class Controls extends StatelessWidget {
             );
           } else if (procesingState != ProcessingState.completed) {
             return IconButton(
-              onPressed: audioPlayer.play,
+              onPressed: audioPlayer.pause,
               icon: const Icon(Icons.pause_rounded),
               iconSize: 80,
               color: Colors.white,
@@ -156,4 +178,11 @@ class Controls extends StatelessWidget {
           }
         });
   }
+}
+
+class PositionData {
+  final Duration position;
+  final Duration bufferPosition;
+  final Duration duration;
+  const PositionData(this.position, this.bufferPosition, this.duration);
 }
